@@ -1,0 +1,29 @@
+﻿@page "/counter"
+@using TestBlazor
+
+<h1>Counter</h1>
+
+<p>Current count: @currentCount</p>
+
+<button class="btn btn-primary" @onclick="IncrementCount">Click me</button>
+
+<form>
+  <input type="text" placeholder="Hello" value="@helloValue" @onchange="HelloChanged"/>
+</form>
+
+<FormletComponent/>
+
+@code {
+  int currentCount = 0;
+  string helloValue = "";
+
+  void HelloChanged(ChangeEventArgs args)
+  {
+    helloValue = args.Value?.ToString () + "!!!";
+  }
+
+  void IncrementCount()
+  {
+    currentCount++;
+  }
+}
