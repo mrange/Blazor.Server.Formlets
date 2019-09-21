@@ -105,6 +105,19 @@ module Common =
   let inline adapt (FL t) = OptimizedClosures.FSharpFunc<_, _, _, _>.Adapt t
   let inline invoke (t : OptimizedClosures.FSharpFunc<_, _, _, _>) fc ffc fm = t.Invoke (fc, ffc, fm)
 
+module FormletTrees =
+  let empty = FormletTree.Empty
+
+  let inline content            c         = FormletTree.Content           c
+  let inline element            e   ft    = FormletTree.Element           (e, ft)
+  let inline withAttribute      k v ft    = FormletTree.WithAttribute     (k, v, ft)
+  let inline withClass          cls ft    = FormletTree.WithClass         (cls, ft)
+  let inline withChangeBinding  rv  ft    = FormletTree.WithChangeBinding (rv, ft)
+  let inline withId             id  ft    = FormletTree.WithId            (id, ft)
+
+  let inline button             cls name  = content name |> element "button" |> withClass cls |> withClass "btn"
+  let inline div                ft        = element "div" ft 
+
 module Formlet =
   open Common
   module Details =
@@ -224,7 +237,6 @@ module Formlet =
   let inline map m (t : Formlet<'T>) : Formlet<'U> =
     let tf = adapt t
     FL <| fun fc ffc fm ->
-
       let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
 
       FR (m tv, tfft, tfm, tft)
@@ -233,7 +245,6 @@ module Formlet =
     let tf = adapt t
     let uf = adapt u
     FL <| fun fc ffc fm ->
-
       let tfm, ufm =
         match fm with
         | FormletModel.Fork (tfm, ufm)  -> tfm                , ufm
@@ -247,7 +258,6 @@ module Formlet =
   let inline unwrap (t : Formlet<Formlet<'T>>) : Formlet<'T> =
     let tf = adapt t
     FL <| fun fc ffc fm ->
-
       let tfm, ufm =
         match fm with
         | FormletModel.Fork (tfm, ufm)  -> tfm                , ufm
@@ -264,7 +274,6 @@ module Formlet =
   let inline tag nm (t : Formlet<'T>) : Formlet<'T> =
     let tf = adapt t
     FL <| fun fc ffc fm ->
-
       let fm =
         match fm with
         | FormletModel.Tag (snm, sft) when snm.Equals nm  -> sft
@@ -293,6 +302,8 @@ module Builder =
   let formlet = Builder ()
 
 module Inputs =
+  open FormletTrees
+
   let text placeholder initial : Formlet<string> =
     FL <| fun fc ffc fm ->
       let rv =
@@ -301,18 +312,13 @@ module Inputs =
         | _                     -> ref initial
 
       let ft =
-        FormletTree.WithChangeBinding (
-          rv,
-          FormletTree.WithClass (
-            "form-control",
-            FormletTree.WithAttribute (
-              "placeholder", placeholder, 
-              FormletTree.WithAttribute (
-                "value", !rv, 
-                FormletTree.WithAttribute (
-                  "type", "text", 
-                  FormletTree.Element ("input", FormletTree.Empty))))))
-        
+        empty 
+        |> element            "input" 
+        |> withAttribute      "type"          "text" 
+        |> withAttribute      "value"         !rv 
+        |> withAttribute      "placeholder"   placeholder
+        |> withClass          "form-control"
+        |> withChangeBinding  rv
 
       FR (!rv, FormletFailureTree.Empty, FormletModel.Value rv, ft)
 
@@ -363,7 +369,6 @@ module Validate =
   let validate (validator : 'T -> string maybe) (t : Formlet<'T>) : Formlet<'T> =
     let tf = adapt t
     FL <| fun fc ffc ft ->
-
       let tfr = invoke tf fc ffc ft
       let (FR (tv, tfft, tfm , tft)) = tfr
 
@@ -391,19 +396,14 @@ module Validate =
 
 module Surround =
   open Common
+  open FormletTrees
 
   let withDiv cls (t : Formlet<'T>) : Formlet<'T> =
     let tf = adapt t
     FL <| fun fc ffc fm ->
-
       let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
 
-      let tft = 
-        FormletTree.WithClass (
-          cls,
-          FormletTree.Element (
-            "div",
-            tft))
+      let tft = tft |> div |> withClass cls
 
       FR (tv, tfft, tfm , tft)
 
@@ -412,35 +412,51 @@ module Surround =
     FL <| fun fc ffc fm ->
       let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
 
-      let content = FormletTree.WithClass ("card-body", FormletTree.Element ("div", tft))
-      let tft     = FormletTree.WithClass ("card mb-3", FormletTree.Element ("div", content))
+      let content = tft |> div |> withClass "card-body" 
+      let tft     = content |> div |> withClass "card mb-3" 
 
       FR (tv, tfft, tfm , tft)
 
   let withNamedBox name (t : Formlet<'T>) : Formlet<'T> =
     let tf      = adapt t
-    let header  = FormletTree.WithClass ("card-header", FormletTree.Element ("div", FormletTree.Content name))
+    let header  = content name |> div |> withClass "card-header"
+
     FL <| fun fc ffc fm ->
       let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
 
-      let content = FormletTree.WithClass ("card-body", FormletTree.Element ("div", tft))
-      let tft     = FormletTree.WithClass ("card mb-3", FormletTree.Element ("div", FormletTree.Fork(header, content)))
+      let content = tft |> div |> withClass "card-body" 
+      let tft     = (header +++ content) |> div |> withClass "card mb-3" 
+
+      FR (tv, tfft, tfm , tft)
+
+  let withSubmit name (t : Formlet<'T>) : Formlet<'T> =
+    let tf      = adapt t
+
+
+    let submitButton  = button "btn-dark"     "Submit"
+    let resetButton   = button "btn-warning"  "Reset"
+
+    let legendHeader  = content name |> div |> withClass "card-header"
+    let legendContent = (submitButton +++ resetButton) |> div |> withClass "card-body"
+    let legend        = (legendHeader +++ legendContent) |> div |> withClass "card mb-3"
+
+    FL <| fun fc ffc fm ->
+      let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
+
+      let tft = legend +++ tft
 
       FR (tv, tfft, tfm , tft)
 
 module Enhance =
   open Common
+  open FormletTrees
 
   let withForm (t : Formlet<'T>) : Formlet<'T> =
     let tf = adapt t
     FL <| fun fc ffc fm ->
-      
       let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
 
-      let tft = 
-        FormletTree.Element (
-          "form",
-          tft)
+      let tft = element "form" tft
 
       FR (tv, tfft, tfm , tft)
 
@@ -450,31 +466,24 @@ module Enhance =
   let withLabel lbl (t : Formlet<'T>) : Formlet<'T> =
     let tf = adapt t
     FL <| fun fc ffc fm ->
-
       let id = fc.CreateId ()
 
       let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
 
-      let lft =
-        FormletTree.WithAttribute (
-          "for", id,
-          FormletTree.Element (
-            "label",
-            FormletTree.Content lbl))
+      let lft = content lbl |> element "label" |> withAttribute "for" id
 
-      let tft = FormletTree.Fork (lft, FormletTree.WithId (id, tft))
+      let tft = lft +++ (withId id tft)
 
       FR (tv, tfft, tfm , tft)
 
   let withValidation (t : Formlet<'T>) : Formlet<'T> =
     let tf = adapt t
     FL <| fun fc ffc fm ->
-
       let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
 
       let tft =
         match tfft with
-        | FormletFailureTree.Empty  -> FormletTree.WithClass ("is-valid", tft)
+        | FormletFailureTree.Empty  -> tft |> withClass "is-valid" 
         | _                         -> 
           let sb = StringBuilder 16
           for f in tfft.Failures () do
@@ -483,8 +492,8 @@ module Enhance =
             sb.Append f |> ignore
           let msg = sb.ToString ()
 
-          let lft = FormletTree.WithClass ("is-invalid", tft)
-          let rft = FormletTree.WithClass ("invalid-feedback", FormletTree.Element ("div", FormletTree.Content msg))
-          FormletTree.Fork (lft, rft)
+          let lft = tft |> withClass "is-invalid"
+          let rft = content msg |> div |> withClass "invalid-feedback"
+          lft +++ rft
 
       FR (tv, tfft, tfm , tft)

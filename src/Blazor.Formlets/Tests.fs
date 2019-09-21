@@ -6,6 +6,7 @@ open Blazor.Formlets.Core.Inputs
 open Blazor.Formlets.Core.Enhance
 open Blazor.Formlets.Core.Components
 open Blazor.Formlets.Core.Validate
+open Blazor.Formlets.Core.Surround
 
 type Example1FormletComponent () = 
   inherit FormletComponent<string*string> ()
@@ -23,5 +24,5 @@ type Example1FormletComponent () =
         let! firstName = input notEmpty "First Name" "Like 'John' or 'Jane'"
         let! lastName  = input notEmpty "Last Name"  "Like 'Doe'"
         return firstName, lastName
-      } |> Surround.withNamedBox "Testing" |> withForm
+      } |> withSubmit "Testing" |> withForm
     form
