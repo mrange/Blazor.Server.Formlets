@@ -350,6 +350,34 @@ module Inputs =
 
       FR (!rv, FormletFailureTree.Empty, FormletModel.Value rv, ft)
 
+  let select (options : (string*'T) []) : Formlet<'T> =
+    if options.Length = 0 then
+      failwith "select - expected at least one choice"
+    let content = 
+      let mapper (k, _) = content k |> element "option"
+      options 
+      |> Array.map mapper
+      |> FormletTree.Group
+    FL <| fun fc ffc fm ->
+      let rv =
+        match fm with
+        | FormletModel.Value rv -> rv
+        | _                     -> ref (fst options.[0])
+
+      let index = options |> Array.tryFindIndex (fun (k, _) -> k = !rv) |> Option.defaultValue 0
+
+      let ft =
+        content
+        |> element            "select" 
+        |> withAttribute      "selectedIndex" (string index)
+        |> withClass          "form-control"
+        |> withChangeBinding  rv
+
+      if index >= 0 && index < options.Length then
+        FR (snd options.[index], FormletFailureTree.Empty, FormletModel.Value rv, ft)
+      else
+        FR (snd options.[0], FormletFailureTree.Failure (ffc, "No value selected"), FormletModel.Value rv, ft)
+
 
 module Components =
   type [<AbstractClass>] FormletComponent () =
