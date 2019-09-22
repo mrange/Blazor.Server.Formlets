@@ -51,15 +51,21 @@ type [<RequireQualifiedAccess>] FormletFailureTree =
 
   member x.ContextfulFailures () : struct (string*string) [] =
     let ra = ResizeArray 16
-    // TODO: Optimize
-    let toContext (FFC vs) =
-      System.String.Join ('.', vs |> List.rev |> List.toArray)
-    let rec loop t =
+    let sb = StringBuilder ()
+    let toContext (sb : StringBuilder) (FFC vs) =
+      sb.Clear () |> ignore
+      let rec loop (sb : StringBuilder) vs =
+        match vs with
+        | []    -> ()
+        | h::t  -> loop sb t; sb.Append '.' |> ignore; sb.Append (h : string) |> ignore
+      loop sb vs
+      sb.ToString ()
+    let rec loop sb t =
       match t with
       | Empty -> ()
-      | Failure (ffc, msg)  -> ra.Add (struct (toContext ffc, msg))
-      | Fork    (l, r)      -> loop l; loop r
-    loop x
+      | Failure (ffc, msg)  -> ra.Add (struct (toContext sb ffc, msg))
+      | Fork    (l, r)      -> loop sb l; loop sb r
+    loop sb x
     ra.ToArray ()
 
   member x.Failures () : string [] =
@@ -93,6 +99,7 @@ type [<RequireQualifiedAccess>] FormletTree =
   | Element           of string*FormletTree
   | Content           of string
   | Fork              of FormletTree*FormletTree
+  | Group             of FormletTree array
 
   static member inline (+++) (l, r) = Fork (l, r)
 
@@ -115,11 +122,13 @@ module FormletTrees =
   let inline withChangeBinding  rv  ft    = FormletTree.WithChangeBinding (rv, ft)
   let inline withId             id  ft    = FormletTree.WithId            (id, ft)
 
-  let inline button             cls name  = content name |> element "button" |> withClass cls |> withClass "btn"
+  let inline button             cls name  = content name |> element "button" |> withAttribute "style" "margin-right: 8px" |> withClass cls |> withClass "btn"
   let inline div                ft        = element "div" ft 
+  let inline span               ft        = element "span" ft 
 
 module Formlet =
   open Common
+
   module Details =
     module Loops =
       let rec renderAttributes context (builder : RenderTreeBuilder) kvs i =
@@ -183,7 +192,15 @@ module Formlet =
         | FormletTree.Fork          (lft, rft)    -> 
           let i = render oid cs kvs cbs context builder lft i
           render Nothing cs kvs cbs context builder rft i
-
+        | FormletTree.Group         fts           ->
+          renderGroup oid cs kvs cbs context builder fts i 0
+      and renderGroup oid cs kvs cbs (context : FormletRenderContext) (builder : RenderTreeBuilder) (formletTrees : FormletTree array) i j =
+        if j < formletTrees.Length then
+          let ft = formletTrees.[j]
+          let i = render oid cs kvs cbs context builder ft i
+          renderGroup Nothing cs kvs cbs context builder formletTrees i (j + 1)
+        else
+          i
   open Details
 
   let eval (context : FormletContext) (formlet : Formlet<'T>) (model : FormletModel) =
@@ -241,6 +258,15 @@ module Formlet =
 
       FR (m tv, tfft, tfm, tft)
 
+  let inline mapTree m (t : Formlet<'T>) : Formlet<'T> =
+    let tf = adapt t
+    FL <| fun fc ffc fm ->
+      let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
+
+      let tft = m tft
+
+      FR (tv, tfft, tfm , tft)
+
   let inline andAlso (t: Formlet<'T>) (u : Formlet<'U>) : Formlet<'T*'U> =
     let tf = adapt t
     let uf = adapt u
@@ -293,12 +319,14 @@ type Formlet<'T> with
 module Builder =
   module Details =
     open Formlet
+
     type Builder () =
       member inline x.Bind       (t, uf)   = bind t uf
       member inline x.Return     v         = value v
       member inline x.ReturnFrom t         = t         : Formlet<_>
       member inline x.Zero       ()        = value ()
   open Details
+
   let formlet = Builder ()
 
 module Inputs =
@@ -398,16 +426,37 @@ module Surround =
   open Common
   open FormletTrees
 
-  let withDiv cls (t : Formlet<'T>) : Formlet<'T> =
-    let tf = adapt t
-    FL <| fun fc ffc fm ->
-      let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
+  module Details =
+    let submitButton  = button "btn-dark"     "Submit"
+    let resetButton   = button "btn-warning"  "Reset"
+    module Submit =
+      let goodText      = content "Ready to submit!" |> span
+      let badText       = content "Resolve validation error(s)" |> span
+      let goodHeader    = (FormletTree.Group [|submitButton; resetButton; goodText|]) |> div |> withClass "card-header"
+      let badHeader     = (FormletTree.Group [|submitButton; resetButton; badText|]) |> div |> withClass "card-header"
+      let goodBody      = content "No problems found." |> div |> withClass "card-body"
+      let goodLegend    = (goodHeader +++ goodBody) |> div |> withClass "card mb-3 text-white bg-success"
 
-      let tft = tft |> div |> withClass cls
+      let legend fft    =
+        match fft with
+        | FormletFailureTree.Empty -> goodLegend
+        | _ ->
+          let mapper (struct (p, v)) = (content (sprintf "%s - %s" p v) |> element "li")
+          let failures  = 
+            fft.ContextfulFailures () 
+            |> Array.map mapper
+            |> FormletTree.Group
+            |> element "ul"
 
-      FR (tv, tfft, tfm , tft)
+          let badBody   = failures |> div |> withClass "card-body"
+          let badLegend = (badHeader +++ badBody) |> div |> withClass "card mb-3 text-white bg-danger"
+          badLegend
+  open Details
 
-  let withBox (t : Formlet<'T>) : Formlet<'T> =
+  let inline withForm       t = t |> Formlet.mapTree (element "form")
+  let inline withFormGroup  t = t |> Formlet.mapTree (element "div" >> withClass "form-group")
+
+  let inline withBox (t : Formlet<'T>) : Formlet<'T> =
     let tf = adapt t
     FL <| fun fc ffc fm ->
       let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
@@ -417,11 +466,13 @@ module Surround =
 
       FR (tv, tfft, tfm , tft)
 
-  let withNamedBox name (t : Formlet<'T>) : Formlet<'T> =
+  let inline withLabeledBox lbl (t : Formlet<'T>) : Formlet<'T> =
     let tf      = adapt t
-    let header  = content name |> div |> withClass "card-header"
+    let header  = content lbl |> div |> withClass "card-header"
 
     FL <| fun fc ffc fm ->
+      let ffc = ffc.Append lbl
+
       let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
 
       let content = tft |> div |> withClass "card-body" 
@@ -429,21 +480,14 @@ module Surround =
 
       FR (tv, tfft, tfm , tft)
 
-  let withSubmit name (t : Formlet<'T>) : Formlet<'T> =
+  let inline withSubmit (t : Formlet<'T>) : Formlet<'T> =
     let tf      = adapt t
-
-
-    let submitButton  = button "btn-dark"     "Submit"
-    let resetButton   = button "btn-warning"  "Reset"
-
-    let legendHeader  = content name |> div |> withClass "card-header"
-    let legendContent = (submitButton +++ resetButton) |> div |> withClass "card-body"
-    let legend        = (legendHeader +++ legendContent) |> div |> withClass "card mb-3"
 
     FL <| fun fc ffc fm ->
       let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
 
-      let tft = legend +++ tft
+      let legend  = Submit.legend tfft
+      let tft     = legend +++ tft
 
       FR (tv, tfft, tfm , tft)
 
@@ -451,32 +495,20 @@ module Enhance =
   open Common
   open FormletTrees
 
-  let withForm (t : Formlet<'T>) : Formlet<'T> =
+  let inline withLabel lbl (t : Formlet<'T>) : Formlet<'T> =
     let tf = adapt t
     FL <| fun fc ffc fm ->
-      let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
-
-      let tft = element "form" tft
-
-      FR (tv, tfft, tfm , tft)
-
-  let withFormGroup (t : Formlet<'T>) : Formlet<'T> =
-    Surround.withDiv "form-group" t
-
-  let withLabel lbl (t : Formlet<'T>) : Formlet<'T> =
-    let tf = adapt t
-    FL <| fun fc ffc fm ->
-      let id = fc.CreateId ()
+      let ffc = ffc.Append lbl
+      let id  = fc.CreateId ()
 
       let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm
 
       let lft = content lbl |> element "label" |> withAttribute "for" id
-
       let tft = lft +++ (withId id tft)
 
       FR (tv, tfft, tfm , tft)
 
-  let withValidation (t : Formlet<'T>) : Formlet<'T> =
+  let inline withValidation (t : Formlet<'T>) : Formlet<'T> =
     let tf = adapt t
     FL <| fun fc ffc fm ->
       let (FR (tv, tfft, tfm, tft)) = invoke tf fc ffc fm

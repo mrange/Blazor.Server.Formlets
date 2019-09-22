@@ -24,5 +24,5 @@ type Example1FormletComponent () =
         let! firstName = input notEmpty "First Name" "Like 'John' or 'Jane'"
         let! lastName  = input notEmpty "Last Name"  "Like 'Doe'"
         return firstName, lastName
-      } |> withSubmit "Testing" |> withForm
+      } |> withLabeledBox "Person" |> withSubmit |> withForm
     form
