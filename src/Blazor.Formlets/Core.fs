@@ -210,6 +210,11 @@ module Formlet =
   let render (context : FormletRenderContext) (builder : RenderTreeBuilder) (formletTree : FormletTree) sequence : int = 
     Loops.render Nothing [] [] [] context builder formletTree sequence
 
+  let renderFragment (context : FormletRenderContext) (formletTree : FormletTree) : RenderFragment =
+    let f (builder : RenderTreeBuilder) = render context builder formletTree 1 |> ignore
+    RenderFragment f
+
+
   let inline value (v : 'T) : Formlet<'T> =
     FL <| fun fc ffc fm ->
       FR (v, FormletFailureTree.Empty, FormletModel.Empty, FormletTree.Empty)
@@ -414,9 +419,56 @@ module Components =
           EventReceiver   = x
           RequestRebuild  = fun () -> ()  // TODO:
         }
-      let i = Formlet.render renderContext builder formletTree 0
+      let i = Formlet.render renderContext builder formletTree 1
       
       ()
+
+module RenderFragments =
+
+  type [<AbstractClass>] FormletRenderFragment () =
+    abstract FailureTree : FormletFailureTree
+
+  type [<Sealed>] FormletRenderFragment<'T> (formlet : Formlet<'T>) =
+    inherit FormletRenderFragment ()
+
+    let mutable formletModel        = FormletModel.Empty
+    let mutable formletFailureTree  = FormletFailureTree.Empty
+    let mutable formletTree         = FormletTree.Empty
+
+    member x.Formlet = formlet
+
+    override x.FailureTree = formletFailureTree
+
+    member x.RenderFragment : RenderFragment =
+      let f builder = x.BuildRenderTree builder
+      RenderFragment f
+
+    member x.BuildRenderTree builder =
+      let id = ref 0
+
+      let evalContext : FormletContext =
+        {
+          CreateId        = fun () -> 
+            let r = sprintf "fid_#%d" !id
+            incr id
+            r
+        }
+
+      let (FR (v, fft, fm, ft)) = Formlet.eval evalContext x.Formlet formletModel
+
+      formletFailureTree  <- fft
+      formletModel        <- fm
+      formletTree         <- ft
+
+      let renderContext : FormletRenderContext = 
+        {
+          EventReceiver   = x
+          RequestRebuild  = fun () -> ()  // TODO:
+        }
+      let i = Formlet.render renderContext builder formletTree 1
+      
+      ()
+
 
 module Validate =
   open Common

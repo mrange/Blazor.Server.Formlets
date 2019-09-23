@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
@@ -15,6 +16,7 @@ namespace TestBlazor
   {
     public static void Main(string[] args)
     {
+      RenderFragment x = null;
       CreateHostBuilder(args).Build().Run();
     }
 
