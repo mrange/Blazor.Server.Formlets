@@ -16,8 +16,8 @@ namespace TestBlazor
   {
     public static void Main(string[] args)
     {
-      RenderFragment x = null;
       CreateHostBuilder(args).Build().Run();
+      IComponent x;
     }
 
     public static IHostBuilder CreateHostBuilder(string[] args) =>

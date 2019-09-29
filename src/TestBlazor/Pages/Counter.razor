@@ -8,18 +8,48 @@
 <button class="btn btn-primary" @onclick="IncrementCount">Click me</button>
 
 <form>
-  <input type="text" placeholder="Hello" value="@helloValue" @onchange="HelloChanged"/>
+  <input type="text" placeholder="Hello" value="@helloValue" @onchange="HelloChanged" />
+  @for (var i = 0; i < values.Length; ++i)
+  {
+    <input type="text" placeholder="Value @i" value="@values[i]" @onchange="e => ValueChanged(e, i)" />
+  }
 </form>
 
-<FormletComponent/>
+<p>Current sum: @sum</p>
 
 @code {
   int currentCount = 0;
-  string helloValue = "";
+  string helloValue = "3";
+  int sum = 0;
+
+  string[] values = new string[3];
+
+  int Parse(string v)
+  {
+    if (int.TryParse(v, out int i))
+    {
+      return i;
+    }
+    else
+    {
+      return 0;
+    }
+  }
 
   void HelloChanged(ChangeEventArgs args)
   {
-    helloValue = args.Value?.ToString () + "!!!";
+    helloValue = args.Value?.ToString() ?? "0";
+    var i = Parse(helloValue);
+    if (i >= 0)
+    {
+      Array.Resize(ref values, i);
+    }
+  }
+
+  void ValueChanged(ChangeEventArgs args, int i)
+  {
+    values[i] = args.Value?.ToString();
+    sum = values.Select(v => Parse(v)).Sum();
   }
 
   void IncrementCount()

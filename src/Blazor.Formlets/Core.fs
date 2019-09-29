@@ -96,6 +96,7 @@ type [<RequireQualifiedAccess>] FormletTree =
   | WithAttribute     of string*string*FormletTree
   | WithId            of string*FormletTree
   | WithChangeBinding of string ref*FormletTree
+  | Component         of Type*FormletTree
   | Element           of string*FormletTree
   | Content           of string
   | Fork              of FormletTree*FormletTree
@@ -108,6 +109,31 @@ type [<Struct>] FormletResult<'T> = FR of 'T*FormletFailureTree*FormletModel*For
 type [<Struct>] Formlet<'T> =
   | FL of (FormletContext -> FormletFailureContext -> FormletModel -> FormletResult<'T>)
 
+type FormletRenderTreeBuilder (builder : RenderTreeBuilder) =
+  class
+    member x.AddAttribute  (sequence : int, key      : string, value : string)            = 
+      printfn "Builder - AddAttribute: %d, %s, %s" sequence key value
+      builder.AddAttribute  (sequence, key, value)
+    member x.AddAttribute  (sequence : int, key      : string, evtcb : EventCallback<_>)  = 
+      printfn "Builder - AddAttribute: %d, %s, CALLBACK" sequence key
+      builder.AddAttribute  (sequence, key, evtcb)
+    member x.AddContent    (sequence : int, content  : string)                            = 
+      printfn "Builder - AddContent: %d, %s" sequence content
+      builder.AddContent    (sequence, content)
+    member x.OpenComponent (sequence : int, tp : Type)                                    =
+      printfn "Builder - OpenComponent: %d, %s" sequence (tp.Name)
+      builder.OpenComponent (sequence, tp)
+    member x.CloseComponent ()                                    =
+      printfn "Builder - CloseComponent: ()"
+      builder.CloseComponent ()
+    member x.OpenElement   (sequence : int, element  : string)                            = 
+      printfn "Builder - OpenElement: %d, %s" sequence element
+      builder.OpenElement   (sequence, element)
+    member x.CloseElement  ()                                                             = 
+      printfn "Builder - CloseElement: ()"
+      builder.CloseElement  ()
+  end
+
 module Common =
   let inline adapt (FL t) = OptimizedClosures.FSharpFunc<_, _, _, _>.Adapt t
   let inline invoke (t : OptimizedClosures.FSharpFunc<_, _, _, _>) fc ffc fm = t.Invoke (fc, ffc, fm)
@@ -116,6 +142,7 @@ module FormletTrees =
   let empty = FormletTree.Empty
 
   let inline content            c         = FormletTree.Content           c
+  let inline component_<'T>         ft    = FormletTree.Component         (typeof<'T>, ft)
   let inline element            e   ft    = FormletTree.Element           (e, ft)
   let inline withAttribute      k v ft    = FormletTree.WithAttribute     (k, v, ft)
   let inline withClass          cls ft    = FormletTree.WithClass         (cls, ft)
@@ -131,14 +158,14 @@ module Formlet =
 
   module Details =
     module Loops =
-      let rec renderAttributes context (builder : RenderTreeBuilder) kvs i =
+      let rec renderAttributes context (builder : FormletRenderTreeBuilder) kvs i =
         match kvs with
         | []                  -> i
         | (struct (k, v))::t  -> 
           builder.AddAttribute (i, k, (v : string))
           renderAttributes context builder t (i + 1)
 
-      let rec renderClass context (builder : RenderTreeBuilder) (sb : StringBuilder) cs i =
+      let rec renderClass context (builder : FormletRenderTreeBuilder) (sb : StringBuilder) cs i =
         match cs with
         | []    -> 
           if sb.Length > 0 then
@@ -151,7 +178,7 @@ module Formlet =
           sb.Append (h : string) |> ignore
           renderClass context builder sb t i
 
-      let rec renderChangeBinding (context : FormletRenderContext) (builder : RenderTreeBuilder) cbs i =
+      let rec renderChangeBinding (context : FormletRenderContext) (builder : FormletRenderTreeBuilder) cbs i =
         match cbs with
         | []  -> i
         | _   ->
@@ -163,16 +190,21 @@ module Formlet =
               cb := v
             context.RequestRebuild ()
           let cb = EventCallback.Factory.Create<ChangeEventArgs> (context.EventReceiver, Action<ChangeEventArgs> onChange)
-          builder.AddAttribute<ChangeEventArgs> (i, "onchange", cb)
+          builder.AddAttribute (i, "onchange", cb)
           i + 1
 
-      let rec render oid cs kvs cbs (context : FormletRenderContext) (builder : RenderTreeBuilder) (formletTree : FormletTree) i = 
+      let rec render oid cs kvs cbs (context : FormletRenderContext) (builder : FormletRenderTreeBuilder) (formletTree : FormletTree) i = 
         match formletTree with
         | FormletTree.Empty                         -> i
         | FormletTree.WithClass         (c, ft)     -> render oid (c::cs) kvs cbs context builder ft i
         | FormletTree.WithAttribute     (k, v, ft)  -> render oid cs (struct (k, v)::kvs) cbs context builder ft i
         | FormletTree.WithId            (id, ft)    -> render (Just id) cs kvs cbs context builder ft i
         | FormletTree.WithChangeBinding (cb, ft)    -> render oid cs kvs (cb::cbs) context builder ft i
+        | FormletTree.Component (tp, ft)            -> 
+          builder.OpenComponent (i, tp)
+          render oid cs kvs cbs context builder ft 1 |> ignore
+          builder.CloseComponent ()
+          i
         | FormletTree.Element           (e, ft)     ->
           builder.OpenElement (i, e)
           let i = i + 1
@@ -194,7 +226,7 @@ module Formlet =
           render Nothing cs kvs cbs context builder rft i
         | FormletTree.Group         fts           ->
           renderGroup oid cs kvs cbs context builder fts i 0
-      and renderGroup oid cs kvs cbs (context : FormletRenderContext) (builder : RenderTreeBuilder) (formletTrees : FormletTree array) i j =
+      and renderGroup oid cs kvs cbs (context : FormletRenderContext) (builder : FormletRenderTreeBuilder) (formletTrees : FormletTree array) i j =
         if j < formletTrees.Length then
           let ft = formletTrees.[j]
           let i = render oid cs kvs cbs context builder ft i
@@ -207,13 +239,8 @@ module Formlet =
     let f = adapt formlet
     invoke f context (FFC []) model
 
-  let render (context : FormletRenderContext) (builder : RenderTreeBuilder) (formletTree : FormletTree) sequence : int = 
+  let render (context : FormletRenderContext) (builder : FormletRenderTreeBuilder) (formletTree : FormletTree) sequence : int = 
     Loops.render Nothing [] [] [] context builder formletTree sequence
-
-  let renderFragment (context : FormletRenderContext) (formletTree : FormletTree) : RenderFragment =
-    let f (builder : RenderTreeBuilder) = render context builder formletTree 1 |> ignore
-    RenderFragment f
-
 
   let inline value (v : 'T) : Formlet<'T> =
     FL <| fun fc ffc fm ->
@@ -419,7 +446,7 @@ module Components =
           EventReceiver   = x
           RequestRebuild  = fun () -> ()  // TODO:
         }
-      let i = Formlet.render renderContext builder formletTree 1
+      let i = Formlet.render renderContext (FormletRenderTreeBuilder builder) formletTree 1
       
       ()
 
@@ -428,7 +455,7 @@ module RenderFragments =
   type [<AbstractClass>] FormletRenderFragment () =
     abstract FailureTree : FormletFailureTree
 
-  type [<Sealed>] FormletRenderFragment<'T> (formlet : Formlet<'T>) =
+  type [<Sealed>] FormletRenderFragment<'T> (eventReceiver : obj, formlet : Formlet<'T>) =
     inherit FormletRenderFragment ()
 
     let mutable formletModel        = FormletModel.Empty
@@ -462,12 +489,14 @@ module RenderFragments =
 
       let renderContext : FormletRenderContext = 
         {
-          EventReceiver   = x
+          EventReceiver   = eventReceiver
           RequestRebuild  = fun () -> ()  // TODO:
         }
-      let i = Formlet.render renderContext builder formletTree 1
+      let i = Formlet.render renderContext (FormletRenderTreeBuilder builder) formletTree 1
       
       ()
+
+  let formletRenderFragment eventReceiver formlet = new FormletRenderFragment<_> (eventReceiver, formlet)
 
 
 module Validate =
@@ -510,6 +539,7 @@ module Surround =
     let submitButton  = button "btn-dark"     "Submit"
     let resetButton   = button "btn-warning"  "Reset"
     module Submit =
+      type Legend = L of unit
       let goodText      = content "Ready to submit!" |> span
       let badText       = content "Resolve validation error(s)" |> span
       let goodHeader    = (FormletTree.Group [|submitButton; resetButton; goodText|]) |> div |> withClass "card-header"
@@ -527,6 +557,7 @@ module Surround =
             |> Array.map mapper
             |> FormletTree.Group
             |> element "ul"
+            |> component_<Legend>
 
           let badBody   = failures |> div |> withClass "card-body"
           let badLegend = (badHeader +++ badBody) |> div |> withClass "card mb-3 text-white bg-danger"

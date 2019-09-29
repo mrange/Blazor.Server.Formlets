@@ -59,5 +59,7 @@ type Example1FormletComponent () =
     |> withSubmit 
     |> withForm
 
+  static member Form = form
+
   override x.Formlet = 
     form
