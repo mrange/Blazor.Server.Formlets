@@ -59,6 +59,7 @@ module Core =
     | WithId            of string*FormletView
     | WithChangeBinding of string ref*FormletView
     | Fork              of FormletView*FormletView
+    | Group             of int*FormletView array
     static member inline (+++) (l, r) = Fork (l, r)
 
   module FormletViews =
@@ -69,6 +70,7 @@ module Core =
     let empty                         = FormletView.Empty
     let content           sno c       = FormletView.Content           (sno, c)
     let element           sno e   fv  = FormletView.Element           (sno, e, fv)
+    let group             sno     fvs = FormletView.Group             (sno, fvs)
     let withAttribute     sno k v fv  = FormletView.WithAttribute     (sno, k, v, fv)
     let withClass             cls fv  = FormletView.WithClass         (cls, fv)
     let withChangeBinding     rv  fv  = FormletView.WithChangeBinding (rv, fv)
@@ -84,6 +86,18 @@ module Core =
     let inline invokefmv f x          = f x
     let inline adaptft  (FT (i,f))    = i, OptimizedClosures.FSharpFunc<_, _, _, _, _>.Adapt f
     let inline invokeft f x y z w     = (f : OptimizedClosures.FSharpFunc<_, _, _, _, _>).Invoke (x, y, z, w)
+
+    open Microsoft.AspNetCore.Components
+    open Microsoft.AspNetCore.Components.Rendering
+    open Microsoft.AspNetCore.Components.Web
+
+    type GroupComponent ()=
+      class
+        inherit ComponentBase ()
+
+        override x.BuildRenderTree builder =
+          ()
+      end
 
   open Details
 
@@ -129,6 +143,14 @@ module Core =
       let renderCloseElement () =
         infof "render.closeElement:"
         rtb.CloseElement ()
+
+      let renderOpenRegion sno = 
+        infof "render.openRegion: %d" sno
+        rtb.OpenRegion sno
+
+      let renderCloseRegion () =
+        infof "render.closeRegion:"
+        rtb.CloseRegion ()
 #else
       let inline renderAttribute sno k v = 
         rtb.AddAttribute (sno, k, (v : string))
@@ -144,7 +166,14 @@ module Core =
 
       let inline renderCloseElement () =
         rtb.CloseElement ()
+
+      let inline renderOpenRegion sno = 
+        rtb.OpenRegion sno
+
+      let inline renderCloseRegion () =
+        rtb.CloseRegion ()
 #endif
+
       let rec renderClass sno cs =
         match cs with
         | []    -> 
@@ -171,6 +200,17 @@ module Core =
           renderOnChangeAttribute sno cb
 
       let rec recurse oid cs kvs cbs fv =
+        let renderAttributes sno =
+          match oid with
+          | ValueSome id  -> renderAttribute (sno + 1) "id" id
+          | _             -> ()
+
+          renderClass         (sno + 2)  cs
+          
+          renderChangeBinding (sno + 3) cbs
+
+          for struct (sno, k, v) in kvs do
+            renderAttribute sno k v
         match fv with
         | FormletView.Empty                             -> ()
         | FormletView.Content           (sno, c)        -> renderContent sno c
@@ -183,22 +223,18 @@ module Core =
           recurse ValueNone cs kvs cbs rfv
         | FormletView.Element           (sno, e, fv)    ->
           renderOpenElement sno e
-
-          match oid with
-          | ValueSome id  -> renderAttribute (sno + 1) "id" id
-          | _             -> ()
-
-          renderClass         (sno + 2)  cs
-          
-          renderChangeBinding (sno + 3) cbs
-
-          for struct (sno, k, v) in kvs do
-            renderAttribute sno k v
-
+          renderAttributes sno
           recurse ValueNone [] [] [] fv
-
           renderCloseElement ()
-          
+        | FormletView.Group           (sno, fvs)        ->
+          if fvs.Length > 0  then
+            renderOpenRegion sno
+            let fv = fvs.[0]
+            recurse oid cs kvs cbs fv
+            for i = 1 to fvs.Length - 1 do
+              let fv = fvs.[i]
+              recurse ValueNone cs kvs cbs fv
+            renderCloseRegion ()
       recurse ValueNone [] [] [] fv
 
     let apply s f =
@@ -233,6 +269,25 @@ module Core =
         let (FR (sv, sfe, sfs, sfv)) = invokeft s fc fp sfs (sno + fr)
 
         FR (sv, ffe +++ sfe, ffs +++ sfs, ffv +++ sfv)
+
+    let debug nm f =
+      let fr, f = adaptft f
+      ft fr <| fun fc fp fs sno ->
+        let (FR (fv, ffe, ffs, ffv)) as fr = invokeft f fc fp fs sno
+        infof "Formlet.debug - %s - sno:%d - fp:%A - %A" nm sno fp fv
+        fr
+
+    let tag nm f =
+      let fr, f = adaptft f
+      ft fr <| fun fc fp fs sno ->
+        let fs =
+          match fs with
+          | FormletState.Tag (tnm, fs) when tnm = nm  -> fs
+          | _                                         -> FormletState.Empty
+
+        let (FR (fv, ffe, ffs, ffv)) = invokeft f fc fp fs sno
+
+        FR (fv, ffe, FormletState.Tag (nm, ffs), ffv)
 
     let map m f =
       let fr, f = adaptft f
@@ -296,12 +351,6 @@ module Core =
       let r = Regex (r, RegexOptions.Compiled)
       f |> fromRegex r msg
 
-  type Formlet<'T> with
-    static member inline (<&>) (f, s) = Formlet.andAlso   s f
-    static member inline (<*>) (f, s) = Formlet.apply     s f
-    static member inline (>>.) (f, s) = Formlet.combine   s f
-    static member inline (|>>) (f, m) = Formlet.map       m f
-
   module Components =
     open Log
 
@@ -347,12 +396,19 @@ module Core =
       
         ()
 
+  type Formlet<'T> with
+    static member inline (<&>) (f, s) = Formlet.andAlso   s f
+    static member inline (<*>) (f, s) = Formlet.apply     s f
+    static member inline (>>.) (f, s) = Formlet.combine   s f
+    static member inline (|>>) (f, m) = Formlet.map       m f
+
   module Input =
     open Formlet
     open FormletViews
 
     let text placeholder initial : Formlet<string> =
-      ft (3 + elementRange) <| fun fc fp fs sno ->
+      let er = 3
+      ft (er + elementRange) <| fun fc fp fs sno ->
         let rv =
           match fs with
           | FormletState.Value rv -> rv
@@ -368,6 +424,45 @@ module Core =
           |> withAttribute      (sno + 2 + elementRange)  "placeholder"   placeholder
 
         FR (!rv, FormletError.Empty, FormletState.Value rv, fv)
+
+    let select (options : (string*'T) []) : Formlet<'T> =
+      if options.Length <= 0 then
+        failwith "select - expected at least one choice"
+
+      let content = 
+        let mapper i (k, _) = content (2*i + 1) k |> element (2*i) "option"
+        options
+        |> Array.mapi mapper
+
+      let sr = elementRange + 2
+      ft sr <| fun fc fp fs sno ->
+        let rv =
+          match fs with
+          | FormletState.Value rv -> rv
+          | _                     -> ref (fst options.[0])
+
+        let fs = FormletState.Value rv
+
+        let index = options |> Array.tryFindIndex (fun (k, _) -> k = !rv) |> Option.defaultValue 0
+
+        let content = content |> group (sno + 1 + elementRange)
+
+        let fv =
+          content
+          |> element            sno                       "select" 
+          |> withAttribute      (sno + 0 + elementRange)  "selectedIndex" (string index)
+          |> withClass                                    "form-control"
+          |> withChangeBinding                            rv
+
+        if index >= 0 && index < options.Length then
+          FR (snd options.[index], FormletError.Empty, fs, fv)
+        else
+          FR (snd options.[0], FormletError.Message (fp, "No value selected"), fs, fv)
+
+    let selectFormlet (options : (string*Formlet<'T>) []) : Formlet<'T> =
+      let opts    = options |> Array.mapi (fun i v -> fst v, i)
+      let choices = options |> Array.map snd
+      select opts |> choose choices
 
   module Enhance =
     open Formlet

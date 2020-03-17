@@ -33,32 +33,33 @@ type TestComponent() =
       Input.text p "" 
       |> v
       |> Enhance.withValidation
-      |> Enhance.withLabel l 
+      |> Enhance.withLabel      l 
       |> Enhance.withFormGroup
 
     let isBirthDate = regex """^\d{4}-\d{2}-\d{2}$""" "Input must be a valid birth date like '1980-01-01'"
 
     let person =
       Formlet.value Person.New
-      <*> input notEmpty    "First name" "Like 'John' or 'Jane'"
-      <*> input notEmpty    "Last name"  "Like 'Doe'"
-      <*> input isBirthDate "Birth date" "Like '1980-01-01'"
+      <*> input notEmpty        "First name" "Like 'John' or 'Jane'"
+      <*> input notEmpty        "Last name"  "Like 'Doe'"
+      <*> input isBirthDate     "Birth date" "Like '1980-01-01'"
+      |> Formlet.tag            "Person"
       |> Enhance.withLabeledBox "Person"
       |>> Person
 
     let company =
       Formlet.value Company.New
-      <*> input notEmpty    "Company name"    "Like 'Microsoft'"
-      <*> input notEmpty    "Company Org No"  "Like '12345'"
+      <*> input notEmpty        "Company name"    "Like 'Microsoft'"
+      <*> input notEmpty        "Company Org No"  "Like '12345'"
+      |> Formlet.tag            "Company"
       |> Enhance.withLabeledBox "Company"
       |>> Company
 
-    let select = 
-      input notEmpty "Selector" "P or C"
-      |>> fun s -> if s = "C" then 1 else 0
-      |> Formlet.choose [|person; company|]
+    let entities = [|"Person", person; "Company", company|]
 
-    let form = select |> Enhance.withForm
+    let entity = Input.selectFormlet entities
+
+    let form = entity |> Enhance.withBox |> Enhance.withForm 
 
     override x.Formlet = form >>. Formlet.value ()
 

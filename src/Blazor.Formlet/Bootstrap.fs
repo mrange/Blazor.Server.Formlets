@@ -55,7 +55,23 @@ module Bootstrap =
             lfv +++ rfv
 
         FR (fv, ffe, ffs, ffv)
-    let withLabeledBox lbl f=
+
+    let withBox f =
+      let fr, f = adaptft f
+      let cr = elementRange
+      let br = elementRange
+
+      ft (fr + cr + br) <| fun fc fp fs sno ->
+        let (FR (fv, ffe, ffs, ffv)) = invokeft f fc fp fs (sno + cr + br)        
+
+        let bsno = sno + cr
+
+        let body    = ffv |> element bsno "div" |> withClass "card-body" 
+        let ffv     = body |> element sno "div" |> withClass "card mb-3" 
+
+        FR (fv, ffe, ffs, ffv)
+
+    let withLabeledBox lbl f =
       let fr, f = adaptft f
       let cr = elementRange
       let hr = elementRange + 1
