@@ -5,6 +5,7 @@ module Core =
   open Microsoft.AspNetCore.Components
   open Microsoft.AspNetCore.Components.Rendering
   open System
+  open System.Collections.Generic
   open System.Text
 
   type FormletEvalContext   = FEC of unit
@@ -32,13 +33,18 @@ module Core =
     | Fork          of FormletError*FormletError
 
     member x.Fold f z =
-      let f = OptimizedClosures.FSharpFunc<_, _, _, _>.Adapt f
-      let rec loop f s t =
+      let f = OptimizedClosures.FSharpFunc<_, _, _, _, _>.Adapt f
+      let rec loop f s i t =
         match t with
-        | Empty               -> s
-        | Message (fp, msg)   -> (f : OptimizedClosures.FSharpFunc<_, _, _, _>).Invoke (s, fp, msg)
-        | Fork    (l, r)      -> loop f (loop f s l) r
-      loop f z x
+        | Empty               -> s, i
+        | Message (fp, msg)   -> 
+          let s = (f : OptimizedClosures.FSharpFunc<_, _, _, _, _>).Invoke (s, i, fp, msg)
+          s, i + 1
+        | Fork    (l, r)      -> 
+          let s, i = (loop f s i l)
+          loop f s i r
+      let s, _ = loop f z 0 x
+      s
 
     static member inline (+++) (l, r) = 
       match l, r with
@@ -66,6 +72,9 @@ module Core =
         
     // +1, +2, +3 for the implcit id, class and change attribute on all elements
     let elementRange                  = 4
+    let divRange                      = 4
+    let spanRange                     = 4
+    let buttonRange                   = 6
 
     let empty                         = FormletView.Empty
     let content           sno c       = FormletView.Content           (sno, c)
@@ -75,6 +84,19 @@ module Core =
     let withClass             cls fv  = FormletView.WithClass         (cls, fv)
     let withChangeBinding     rv  fv  = FormletView.WithChangeBinding (rv, fv)
     let withId                id  fv  = FormletView.WithId            (id , fv)
+
+
+    let div               sno     fv  = element sno "div"  fv
+    let span              sno     fv  = element sno "span" fv
+
+    let button            sno cls nm  = 
+      content           (sno + 0 + elementRange)  nm 
+      |> element        sno                       "button" 
+      |> withAttribute  (sno + 1 + elementRange)  "style"   "margin-right: 8px" 
+      |> withClass                                cls 
+      |> withClass                                "btn"
+
+
   type [<Struct>] FormletMapView = FMV of int*(FormletView -> FormletView)
 
   type [<Struct>] FormletResult<'T> = FR of 'T*FormletError*FormletState*FormletView
@@ -124,32 +146,53 @@ module Core =
       let sb = StringBuilder ()
 
 #if DEBUG
+      let seen = Dictionary<_, _> ()
+
+      let mutable section = [0]
+
+      let log sno msg =
+        infof "%d - %s" sno msg
+        if sno > -1 then
+          let sno = sno::section
+          let b, vs = seen.TryGetValue sno
+          let vs =
+            if b then
+              vs
+            else
+              let vs = ResizeArray ()
+              seen.Add (sno, vs)
+              vs
+          vs.Add msg
+      let logf sno fmt = kprintf (log sno) fmt
+
       let renderAttribute sno k v = 
-        infof "render.attribute: %d, %A, %A" sno k v
+        logf sno "render.attribute: %A, %A" k v
         rtb.AddAttribute (sno, k, (v : string))
 
       let renderOnChangeAttribute sno cb = 
-        infof "render.attribute: %d, 'onchange'" sno
+        log sno "render.attribute: 'onchange'"
         rtb.AddAttribute<ChangeEventArgs> (sno, "onchange", cb)
 
       let renderContent sno c = 
-        infof "render.content: %d, %A" sno c
+        logf sno "render.content: %A" c
         rtb.AddContent (sno, (c : string))
 
       let renderOpenElement sno e = 
-        infof "render.openElement: %d, %A" sno e
+        logf sno "render.openElement: %A" e
         rtb.OpenElement (sno, e)
 
       let renderCloseElement () =
-        infof "render.closeElement:"
+        logf -1 "render.closeElement:"
         rtb.CloseElement ()
 
       let renderOpenRegion sno = 
-        infof "render.openRegion: %d" sno
+        logf sno "render.openRegion: %d" sno
+        section <- sno::section
         rtb.OpenRegion sno
 
       let renderCloseRegion () =
-        infof "render.closeRegion:"
+        logf -1 "render.closeRegion:"
+        section <- section |> List.tail
         rtb.CloseRegion ()
 #else
       let inline renderAttribute sno k v = 
@@ -236,6 +279,14 @@ module Core =
               recurse ValueNone cs kvs cbs fv
             renderCloseRegion ()
       recurse ValueNone [] [] [] fv
+
+#if DEBUG
+      for kv in seen do
+        let k = kv.Key
+        let v = kv.Value |> Seq.toArray
+        if v.Length > 1 then
+          Log.errorf "Duplicate sequence number detected: %A - %A" k v
+#endif
 
     let apply s f =
       let fr, f = adaptft f
@@ -339,7 +390,7 @@ module Core =
 
     let notEmpty f = 
       let v s = 
-        if System.String.IsNullOrEmpty s then Some "Input must not be empty" else None
+        if String.IsNullOrEmpty s then Some "Input must not be empty" else None
       f |> Formlet.validate v
 
     let fromRegex (r : Regex) msg f = 
@@ -371,15 +422,20 @@ module Core =
       abstract Formlet : Formlet<'T>
 
       override x.BuildRenderTree builder =
+#if DEBUG
         hilight "FormletComponent.BuildRenderTree"
 
         info "FormletComponent.BuildRenderTree.eval"
+#endif
+
         let fc = FEC ()
         let (r, FR (_, fe, fs, fv)) = Formlet.eval fc x.Formlet formletState
 
+#if DEBUG
         infof "Error:\n%A" fe
         infof "State:\n%A" fs
         infof "View :\n%A" fv
+#endif
 
         formletError  <- fe
         formletState  <- fs
@@ -391,10 +447,10 @@ module Core =
             RequestRebuild  = fun () -> ()  // TODO:
           }
          
+#if DEBUG
         info "FormletComponent.BuildRenderTree.render"
+#endif
         Formlet.render frc builder formletView
-      
-        ()
 
   type Formlet<'T> with
     static member inline (<&>) (f, s) = Formlet.andAlso   s f

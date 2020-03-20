@@ -59,7 +59,7 @@ type TestComponent() =
 
     let entity = Input.selectFormlet entities
 
-    let form = entity |> Enhance.withBox |> Enhance.withForm 
+    let form = entity |> Enhance.withSubmit |> Enhance.withForm 
 
     override x.Formlet = form >>. Formlet.value ()
 
