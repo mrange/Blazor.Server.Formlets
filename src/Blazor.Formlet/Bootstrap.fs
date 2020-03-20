@@ -98,6 +98,9 @@ module Bootstrap =
       let lr = divRange
       ft (fr + lr + hr + br) <| fun fc fp fs sno ->
 
+        // TODO: Getting the sequence numbers right for bigger controls is a bit messy.
+        //  How to improve?
+
         let hsno = sno + lr
         let bsno = sno + lr + hr
 
