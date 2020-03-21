@@ -29,16 +29,16 @@ type TestComponent() =
   class
     inherit FormletComponent<unit> ()
 
-    let input v l p =
+    static let input v l p =
       Input.text p ""
       |> v
       |> Enhance.withValidation
       |> Enhance.withLabel      l
       |> Enhance.withFormGroup
 
-    let isBirthDate = regex """^\d{4}-\d{2}-\d{2}$""" "Input must be a valid birth date like '1980-01-01'"
+    static let isBirthDate = regex """^\d{4}-\d{2}-\d{2}$""" "Input must be a valid birth date like '1980-01-01'"
 
-    let person =
+    static let person =
       Formlet.value Person.New
       <*> input notEmpty        "First name" "Like 'John' or 'Jane'"
       <*> input notEmpty        "Last name"  "Like 'Doe'"
@@ -47,7 +47,7 @@ type TestComponent() =
       |> Enhance.withLabeledBox "Person"
       |>> Person
 
-    let company =
+    static let company =
       Formlet.value Company.New
       <*> input notEmpty        "Company name"    "Like 'Microsoft'"
       <*> input notEmpty        "Company Org No"  "Like '12345'"
@@ -55,13 +55,13 @@ type TestComponent() =
       |> Enhance.withLabeledBox "Company"
       |>> Company
 
-    let entities = [|"Person", person; "Company", company|]
+    static let entities = [|"Person", person; "Company", company|]
 
-    let entity =
+    static let entity =
       Input.selectFormlet entities
       |> Enhance.withAttribute "style" "margin-bottom: 8px"
 
-    let form = entity |> Enhance.withSubmit |> Enhance.withForm
+    static let form = entity |> Enhance.withSubmit |> Enhance.withForm
 
     override x.Formlet = form >>. Formlet.value ()
 
