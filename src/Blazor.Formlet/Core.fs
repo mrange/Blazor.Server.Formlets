@@ -9,7 +9,7 @@ module Core =
   open System.Text
 
   type FormletEvalContext   = FEC of unit
-  type FormletRenderContext = 
+  type FormletRenderContext =
     {
       EventReceiver     : obj
       RequestRebuild    : unit -> unit
@@ -37,16 +37,16 @@ module Core =
       let rec loop f s i t =
         match t with
         | Empty               -> s, i
-        | Message (fp, msg)   -> 
+        | Message (fp, msg)   ->
           let s = (f : OptimizedClosures.FSharpFunc<_, _, _, _, _>).Invoke (s, i, fp, msg)
           s, i + 1
-        | Fork    (l, r)      -> 
+        | Fork    (l, r)      ->
           let s, i = (loop f s i l)
           loop f s i r
       let s, _ = loop f z 0 x
       s
 
-    static member inline (+++) (l, r) = 
+    static member inline (+++) (l, r) =
       match l, r with
       | Empty , _     -> r
       | _     , Empty -> l
@@ -69,7 +69,7 @@ module Core =
     static member inline (+++) (l, r) = Fork (l, r)
 
   module FormletViews =
-        
+
     // +1, +2, +3 for the implcit id, class and change attribute on all elements
     let elementRange                  = 4
     let divRange                      = 4
@@ -89,11 +89,11 @@ module Core =
     let div               sno     fv  = element sno "div"  fv
     let span              sno     fv  = element sno "span" fv
 
-    let button            sno cls nm  = 
-      content           (sno + 0 + elementRange)  nm 
-      |> element        sno                       "button" 
-      |> withAttribute  (sno + 1 + elementRange)  "style"   "margin-right: 8px" 
-      |> withClass                                cls 
+    let button            sno cls nm  =
+      content           (sno + 0 + elementRange)  nm
+      |> element        sno                       "button"
+      |> withAttribute  (sno + 1 + elementRange)  "style"   "margin-right: 8px"
+      |> withClass                                cls
       |> withClass                                "btn"
 
 
@@ -128,11 +128,11 @@ module Core =
 
     let inline ft   r f   = FT  (r, f)
     let inline fmv   r f  = FMV (r, f)
-    let value v = 
+    let value v =
       ft 0 <| fun fc fp fs sno ->
         FR (v, FormletError.Empty, FormletState.Empty, FormletView.Empty)
 
-    let error fv msg = 
+    let error fv msg =
       ft 0 <| fun fc fp fs sno ->
         FR (fv, FormletError.Message (fp, msg), FormletState.Empty, FormletView.Empty)
 
@@ -165,19 +165,19 @@ module Core =
           vs.Add msg
       let logf sno fmt = kprintf (log sno) fmt
 
-      let renderAttribute sno k v = 
+      let renderAttribute sno k v =
         logf sno "render.attribute: %A, %A" k v
         rtb.AddAttribute (sno, k, (v : string))
 
-      let renderOnChangeAttribute sno cb = 
+      let renderOnChangeAttribute sno cb =
         log sno "render.attribute: 'onchange'"
         rtb.AddAttribute<ChangeEventArgs> (sno, "onchange", cb)
 
-      let renderContent sno c = 
+      let renderContent sno c =
         logf sno "render.content: %A" c
         rtb.AddContent (sno, (c : string))
 
-      let renderOpenElement sno e = 
+      let renderOpenElement sno e =
         logf sno "render.openElement: %A" e
         rtb.OpenElement (sno, e)
 
@@ -185,7 +185,7 @@ module Core =
         logf -1 "render.closeElement:"
         rtb.CloseElement ()
 
-      let renderOpenRegion sno = 
+      let renderOpenRegion sno =
         logf sno "render.openRegion: %d" sno
         section <- sno::section
         rtb.OpenRegion sno
@@ -195,22 +195,22 @@ module Core =
         section <- section |> List.tail
         rtb.CloseRegion ()
 #else
-      let inline renderAttribute sno k v = 
+      let inline renderAttribute sno k v =
         rtb.AddAttribute (sno, k, (v : string))
 
-      let inline renderOnChangeAttribute sno cb = 
+      let inline renderOnChangeAttribute sno cb =
         rtb.AddAttribute<ChangeEventArgs> (sno, "onchange", cb)
 
-      let inline renderContent sno c = 
+      let inline renderContent sno c =
         rtb.AddContent (sno, (c : string))
 
-      let inline renderOpenElement sno e = 
+      let inline renderOpenElement sno e =
         rtb.OpenElement (sno, e)
 
       let inline renderCloseElement () =
         rtb.CloseElement ()
 
-      let inline renderOpenRegion sno = 
+      let inline renderOpenRegion sno =
         rtb.OpenRegion sno
 
       let inline renderCloseRegion () =
@@ -219,11 +219,11 @@ module Core =
 
       let rec renderClass sno cs =
         match cs with
-        | []    -> 
-          if sb.Length > 0 then 
+        | []    ->
+          if sb.Length > 0 then
             renderAttribute sno "class" <| sb.ToString ()
             sb.Clear () |> ignore
-        | h::t  -> 
+        | h::t  ->
           if sb.Length > 0 then sb.Append ' ' |> ignore
           sb.Append (h : string) |> ignore
           renderClass sno t
@@ -249,7 +249,7 @@ module Core =
           | _             -> ()
 
           renderClass         (sno + 2)  cs
-          
+
           renderChangeBinding (sno + 3) cbs
 
           for struct (sno, k, v) in kvs do
@@ -388,17 +388,17 @@ module Core =
   module Validate =
     open System.Text.RegularExpressions
 
-    let notEmpty f = 
-      let v s = 
+    let notEmpty f =
+      let v s =
         if String.IsNullOrEmpty s then Some "Input must not be empty" else None
       f |> Formlet.validate v
 
-    let fromRegex (r : Regex) msg f = 
+    let fromRegex (r : Regex) msg f =
       let v s =
         if r.IsMatch s then None else Some msg
       f |> Formlet.validate v
 
-    let regex r msg f = 
+    let regex r msg f =
       let r = Regex (r, RegexOptions.Compiled)
       f |> fromRegex r msg
 
@@ -446,7 +446,7 @@ module Core =
             EventReceiver   = x
             RequestRebuild  = fun () -> ()  // TODO:
           }
-         
+
 #if DEBUG
         info "FormletComponent.BuildRenderTree.render"
 #endif
@@ -471,12 +471,12 @@ module Core =
           | _                     -> ref initial
 
         let fv =
-          empty 
-          |> element            sno                       "input" 
+          empty
+          |> element            sno                       "input"
           |> withClass                                    "form-control"
           |> withChangeBinding                            rv
-          |> withAttribute      (sno + 0 + elementRange)  "type"          "text" 
-          |> withAttribute      (sno + 1 + elementRange)  "value"         !rv 
+          |> withAttribute      (sno + 0 + elementRange)  "type"          "text"
+          |> withAttribute      (sno + 1 + elementRange)  "value"         !rv
           |> withAttribute      (sno + 2 + elementRange)  "placeholder"   placeholder
 
         FR (!rv, FormletError.Empty, FormletState.Value rv, fv)
@@ -485,7 +485,7 @@ module Core =
       if options.Length <= 0 then
         failwith "select - expected at least one choice"
 
-      let content = 
+      let content =
         let mapper i (k, _) = content (2*i + 1) k |> element (2*i) "option"
         options
         |> Array.mapi mapper
@@ -505,7 +505,7 @@ module Core =
 
         let fv =
           content
-          |> element            sno                       "select" 
+          |> element            sno                       "select"
           |> withAttribute      (sno + 0 + elementRange)  "selectedIndex" (string index)
           |> withClass                                    "form-control"
           |> withChangeBinding                            rv
@@ -524,6 +524,21 @@ module Core =
     open Formlet
     open FormletViews
 
+    let withAttribute k v f =
+      let lr = 1
+      let fr, f = adaptft f
+      ft (fr + 1) <| fun fc fp fs sno ->
+        let (FR (fv, ffe, ffs, ffv)) = invokeft f fc fp fs sno
+
+        FR (fv, ffe, ffs, FormletView.WithAttribute (sno + fr, k, v, ffv))
+
+    let withClass cls f =
+      let fr, f = adaptft f
+      ft fr <| fun fc fp fs sno ->
+        let (FR (fv, ffe, ffs, ffv)) = invokeft f fc fp fs sno
+
+        FR (fv, ffe, ffs, FormletView.WithClass (cls, ffv))
+
     let withLabel lbl f =
       let lr = elementRange + 2
       let fr, f = adaptft f
@@ -531,10 +546,10 @@ module Core =
         let fp = lbl::fp
         let id = sprintf "lbl-%d" sno
 
-        let lfv = 
-          content (sno + 1 + elementRange) lbl 
-          |> element sno "label" 
-          |> withAttribute (sno + 0 + elementRange) "for" id
+        let lfv =
+          content (sno + 1 + elementRange) lbl
+          |> element sno "label"
+          |> FormletViews.withAttribute (sno + 0 + elementRange) "for" id
 
         let (FR (fv, ffe, ffs, ffv)) = invokeft f fc fp fs (sno + lr)
 
@@ -549,8 +564,8 @@ module Core =
 
         let (FR (fv, ffe, ffs, ffv)) = invokeft f fc fp fs (sno + lr)
 
-        let ffv = 
+        let ffv =
           ffv
-          |> element sno "form" 
+          |> element sno "form"
 
         FR (fv, ffe, ffs, ffv)

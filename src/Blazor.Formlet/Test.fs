@@ -29,11 +29,11 @@ type TestComponent() =
   class
     inherit FormletComponent<unit> ()
 
-    let input v l p = 
-      Input.text p "" 
+    let input v l p =
+      Input.text p ""
       |> v
       |> Enhance.withValidation
-      |> Enhance.withLabel      l 
+      |> Enhance.withLabel      l
       |> Enhance.withFormGroup
 
     let isBirthDate = regex """^\d{4}-\d{2}-\d{2}$""" "Input must be a valid birth date like '1980-01-01'"
@@ -57,9 +57,11 @@ type TestComponent() =
 
     let entities = [|"Person", person; "Company", company|]
 
-    let entity = Input.selectFormlet entities
+    let entity =
+      Input.selectFormlet entities
+      |> Enhance.withAttribute "style" "margin-bottom: 8px"
 
-    let form = entity |> Enhance.withSubmit |> Enhance.withForm 
+    let form = entity |> Enhance.withSubmit |> Enhance.withForm
 
     override x.Formlet = form >>. Formlet.value ()
 

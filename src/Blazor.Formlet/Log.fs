@@ -4,20 +4,20 @@ module Log =
   open FSharp.Core.Printf
   open System
 
-  type [<RequireQualifiedAccess>] LogLevel = 
+  type [<RequireQualifiedAccess>] LogLevel =
     | Success   = 5
     | Hilight   = 4
     | Info      = 3
     | Warning   = 2
     | Error     = 1
-  let log   level msg = 
+  let log   level msg =
     let cc =
       match level with
       | LogLevel.Success  -> ConsoleColor.Green
       | LogLevel.Hilight  -> ConsoleColor.Cyan
       | LogLevel.Info     -> ConsoleColor.Gray
       | LogLevel.Warning  -> ConsoleColor.Yellow
-      | LogLevel.Error    
+      | LogLevel.Error
       | _                 -> ConsoleColor.Red
     let pre =
       match level with
